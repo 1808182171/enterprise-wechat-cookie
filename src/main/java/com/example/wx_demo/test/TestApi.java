@@ -94,10 +94,8 @@ public class TestApi {
                 .asString();
         JSONObject res = JSON.parseObject(response.getBody());
         String qrcodeKey = res.getJSONObject("data").getString("qrcode_key");
-
         Map<String, String> result = new HashMap<>();
         result.put("qrcode_key", qrcodeKey);
-//        result.put("qrcode_url", baseUri + "wwqrlogin/qrcode/" + qrcodeKey + "?login_type=login_admin");
         result.put("qrcode_url", baseUri + String.format("/wework_admin/wwqrlogin/mng/qrcode?qrcode_key=%s&login_type=login_admin", qrcodeKey));
         return result;
     }
