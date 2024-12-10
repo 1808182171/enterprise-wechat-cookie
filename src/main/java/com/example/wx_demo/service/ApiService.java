@@ -2,6 +2,7 @@ package com.example.wx_demo.service;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
+import com.example.wx_demo.common.WxCaptchaDto;
 import com.example.wx_demo.util.HttpUtil;
 import kong.unirest.HttpResponse;
 import org.slf4j.Logger;
@@ -32,7 +33,7 @@ public class ApiService {
      * @return
      */
 
-    public String getQrCode(String cookie) {
+    public JSONObject getQrCode(String cookie) {
         Map<String, String> headers = new HashMap<>();
         headers.put(HttpHeaders.COOKIE, "wwrtx.sid=" + cookie);
         HttpResponse<String> response = HttpUtil.doGet(baseUri + "/wework_admin/wxplugin/getDetail", null, headers);
@@ -42,7 +43,7 @@ public class ApiService {
         if (data == null) {
             return null;
         }
-        return data.getString("qrCode");
+        return data;
     }
 
     /**
@@ -119,10 +120,22 @@ public class ApiService {
                 case "QRCODE_SCAN_SUCC":
                     logger.info("已确认扫码,待获取cookie");
                     String authCode = resStatus.getString("auth_code");
-                    String qrcode = getLoginQrCode(authCode, qrcodeKey);
-                    if (qrcode != null) {
+                    JSONObject qrcodeJson  = getLoginQrCode(authCode, qrcodeKey);
+                    if (qrcodeJson != null) {
+
+                        //判断是否是需要手机验证码
+                        if (qrcodeJson.getString("need_mobile_verify") != null) {
+                            resultMap.put("status", "-5");
+                            resultMap.put("tlKey", qrcodeJson.get("tl_key").toString());
+                            resultMap.put("referer", qrcodeJson.get("referer").toString());
+                            resultMap.put("tmpSid", qrcodeJson.get("tmpId").toString());
+                            resultMap.put("message", "已发送手机验证码，需要输入验证码登录");
+                            return resultMap;
+                        }
+
+                        String qrCode = qrcodeJson.getString("qrCode");
                         resultMap.put("status", "1");
-                        resultMap.put("qrcode", qrcode);
+                        resultMap.put("qrcode", qrCode);
                         resultMap.put("message", "已确认扫码,获取成功");
                         //将qrcode存缓存
 //                        setCache(WebContant.WX_QRCODE, qrcode);
@@ -151,7 +164,7 @@ public class ApiService {
      * @param qrcodeKey 二维码key
      * @return cookie
      */
-    private String getLoginQrCode(String authCode, String qrcodeKey) {
+    private JSONObject getLoginQrCode(String authCode, String qrcodeKey) {
         // 获取登录页面
         String loginpageUrl = baseUri + String.format("/wework_admin/loginpage_wx?_r=%s&wwqrlogin=1&auth_source=SOURCE_FROM_WEWORK&code=%s&qrcode_key=%s", (int) (Math.random() * 1000), authCode, qrcodeKey);
         Map<String, String> locationMap = HttpUtil.sendRedirectRequest(loginpageUrl, null);
@@ -168,8 +181,89 @@ public class ApiService {
             return null;
         }
         String cookie = getCookieMap.get("cookie");
+
+        if (cookie == null) {
+            //第一次登录企业微信进入手机验证码验证
+            location = getCookieMap.get("location");
+            String captchaLocation = baseUri + location;
+            if (location.contains("tl_key=")) {
+                //取出下面字符串中的tl_key值
+                String tl_key = location.substring(location.indexOf("tl_key=") + 7, location.indexOf("&redirect_url"));
+                Map<String, String> headers = new HashMap<>();
+                headers.put("Cookie", "wwrtx.tmp_sid=" + tmpCookie);
+                HttpUtil.doGet(captchaLocation, null, headers);
+                HttpUtil.sendRedirectRequest(locationUrl, tmpCookie);
+                JSONObject result = new JSONObject();
+                result.put("tl_key", tl_key);
+                result.put("referer", captchaLocation);
+                result.put("tmpId", tmpCookie);
+                result.put("need_mobile_verify", "ok");
+                return result;
+            }
+        }
+
         //存缓存 项目中可自行修改
 //        setCache(WebContant.WX_COOKIE, cookie);
         return getQrCode(cookie);
+    }
+
+
+    /**
+     * 确认验证码获取企业微信登录二维码.
+     *
+     * @param wxCaptcha
+     * @return
+     */
+    public JSONObject confirmCaptcha(WxCaptchaDto wxCaptcha) {
+        Map<String, String> headers = new HashMap<>();
+        headers.put(HttpHeaders.COOKIE, "wwrtx.tmp_sid=" + wxCaptcha.getTmpSid());
+        headers.put(HttpHeaders.CONTENT_TYPE, "application/json; charset=utf-8");
+        headers.put(HttpHeaders.REFERER, wxCaptcha.getReferer());
+        Map<String, Object> params = new HashMap<>();
+        params.put("captcha", wxCaptcha.getCode());
+        params.put("tl_key", wxCaptcha.getTlKey());
+        HttpResponse<String> response = HttpUtil.doPost(baseUri + "/wework_admin/mobile_confirm/confirm_captcha", params, headers);
+        String result = response.getBody();
+        JSONObject resultJSON = JSONObject.parseObject(result);
+        if (resultJSON != null && resultJSON.getJSONObject("data").isEmpty()) {
+            Map<String, String> stringStringMap = HttpUtil.sendRedirectRequest(baseUri + "/wework_admin/login/choose_corp?tl_key=" + wxCaptcha.getTlKey(), wxCaptcha.getTmpSid());
+            if (stringStringMap != null) {
+                String cookie = stringStringMap.get("cookie");
+                //缓存
+                JSONObject qrCode = getQrCode(cookie);
+                resultJSON = new JSONObject();
+                resultJSON.put("status", "1");
+                if (qrCode != null) {
+                    resultJSON.put("qrCode", qrCode.getString("qrCode"));
+                }
+                return resultJSON;
+            }
+        }
+        return resultJSON;
+    }
+
+    /**
+     * 发送微信登录验证码
+     *
+     * @param wxCaptcha
+     * @return
+     */
+    public JSONObject sendCaptcha(WxCaptchaDto wxCaptcha) {
+        Map<String, String> headers = new HashMap<>();
+        headers.put(HttpHeaders.COOKIE, "wwrtx.tmp_sid=" + wxCaptcha.getTmpSid());
+        headers.put(HttpHeaders.CONTENT_TYPE, "application/json; charset=utf-8");
+        headers.put(HttpHeaders.REFERER, wxCaptcha.getReferer());
+        Map<String, Object> params = new HashMap<>();
+        params.put("tl_key", wxCaptcha.getTlKey());
+        HttpResponse<String> response = HttpUtil.doPost(baseUri + "/wework_admin/mobile_confirm/confirm_captcha", params, headers);
+        String result = response.getBody();
+        JSONObject resultJSON = JSONObject.parseObject(result);
+        if (resultJSON == null || resultJSON.getJSONObject("result").get("errCode") != null) {
+            return resultJSON;
+        }
+        resultJSON = new JSONObject();
+        resultJSON.put("status", "1");
+        resultJSON.put("massage", "发送验证码成功");
+        return resultJSON;
     }
 }

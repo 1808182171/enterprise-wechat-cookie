@@ -164,6 +164,7 @@ public final class HttpUtil {
                         }
                     }
                 }
+                map.put("location", location);
             } else {
                 // 其他响应码全部置为失败
                 log.warn("Unexpected response code: {}", responseCode);

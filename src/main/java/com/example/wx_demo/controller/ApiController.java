@@ -1,13 +1,16 @@
 package com.example.wx_demo.controller;
 
+import com.alibaba.fastjson.JSONObject;
 import com.example.wx_demo.common.AjaxResult;
+import com.example.wx_demo.common.WxCaptchaDto;
 import com.example.wx_demo.service.ApiService;
+import com.example.wx_demo.util.HttpUtil;
+import kong.unirest.HttpResponse;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.HttpHeaders;
+import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -41,11 +44,11 @@ public class ApiController {
         //        return AjaxResult.error("获取cookie失败,请管理员扫码登录企业微信平台");
         //    }
         String cookie = "";
-        String qrcode = apiService.getQrCode(cookie);
-        if (qrcode == null) {
+        JSONObject qrCode = apiService.getQrCode(cookie);
+        if (qrCode == null) {
             return AjaxResult.error("获取加入微信二维码失败,请管理员扫码登录企业微信平台");
         }
-        return AjaxResult.success(qrcode);
+        return AjaxResult.success(qrCode.getString("qrCode"));
     }
 
     /**
@@ -67,5 +70,28 @@ public class ApiController {
     public AjaxResult pollingWxLoginQrcode(@RequestParam(value = "qrcodeKey", required = true) String qrcodeKey) {
         Map<String, String> map = apiService.pollingWxLoginQrcode(qrcodeKey);
         return AjaxResult.success(map);
+    }
+
+    /**
+     * 通过手机验证码登录企业微信获取cookie获取微信插件二维码
+     * @return
+     */
+    @RequestMapping(value = "confirmCaptcha", method = RequestMethod.POST)
+    public AjaxResult confirmCaptcha(@RequestBody WxCaptchaDto wxCaptcha) {
+
+        JSONObject jsonObject = apiService.confirmCaptcha(wxCaptcha);
+        return AjaxResult.success(jsonObject);
+    }
+
+
+    /**
+     * 发送验证码
+     * @param wxCaptcha 参数
+     * @return
+     */
+    @RequestMapping(value = "sendCaptcha", method = RequestMethod.POST)
+    public AjaxResult sendCaptcha(@RequestBody WxCaptchaDto wxCaptcha) {
+        JSONObject jsonObject = apiService.sendCaptcha(wxCaptcha);
+        return AjaxResult.success(jsonObject);
     }
 }

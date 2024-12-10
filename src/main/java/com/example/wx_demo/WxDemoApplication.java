@@ -10,4 +10,7 @@ public class WxDemoApplication {
         SpringApplication.run(WxDemoApplication.class, args);
     }
 
+
+
+
 }

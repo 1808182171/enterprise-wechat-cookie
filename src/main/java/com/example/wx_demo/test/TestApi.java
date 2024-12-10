@@ -27,7 +27,6 @@ import java.util.Map;
 public class TestApi {
 
     private static final Logger log = LoggerFactory.getLogger(TestApi.class);
-
     private final String baseUri = "https://work.weixin.qq.com";
     private final UnirestInstance unirest = Unirest.spawnInstance();
     private final Map<String, String> config = new HashMap<>();
@@ -66,6 +65,14 @@ public class TestApi {
                     String authCode = resStatus.getString("auth_code");
                     String cookie = testApi.getCookie(authCode, qrcodeKey);
                     System.out.println("获取cookie: " + cookie);
+                    if(cookie==null){
+                        log.info("获取cookie失败");
+                        return;
+                    }
+                    if("mobile_confirm".equals(cookie)){
+                        log.info("执行mobileConfirm接口获取二维码");
+                        return;
+                    }
                     String wxPlugQrCode = testApi.getWxPlugQrCode(cookie);
                     log.info("获取微信插件二维码: " + wxPlugQrCode);
                     break;
@@ -94,8 +101,10 @@ public class TestApi {
                 .asString();
         JSONObject res = JSON.parseObject(response.getBody());
         String qrcodeKey = res.getJSONObject("data").getString("qrcode_key");
+
         Map<String, String> result = new HashMap<>();
         result.put("qrcode_key", qrcodeKey);
+//        result.put("qrcode_url", baseUri + "wwqrlogin/qrcode/" + qrcodeKey + "?login_type=login_admin");
         result.put("qrcode_url", baseUri + String.format("/wework_admin/wwqrlogin/mng/qrcode?qrcode_key=%s&login_type=login_admin", qrcodeKey));
         return result;
     }
@@ -137,15 +146,73 @@ public class TestApi {
         // 获取登录跳转页面
         String location = locationMap.get("location");
         String tmpCookie = locationMap.get("tmpCookie");
+        System.out.println("tmpSid:"+tmpCookie);
         String locationUrl = baseUri + location + "&redirect_uri=https://work.weixin.qq.com/wework_admin/frame";
         Map<String, String> getCookieMap = HttpUtil.sendRedirectRequest(locationUrl, tmpCookie);
         if (getCookieMap == null) {
             return null;
         }
         String cookie = getCookieMap.get("cookie");
+
+        if(cookie==null){
+            //验证跳转
+            location = getCookieMap.get("location");
+            Map<String,String> headersMap = new HashMap<>();
+            headersMap.put(HttpHeaders.COOKIE, "wwrtx.tmp_sid="+tmpCookie);
+            HttpUtil.doGet(baseUri + location, null, headersMap);
+            HttpUtil.sendRedirectRequest(locationUrl, tmpCookie);
+            //取出下面字符串中的tl_key值
+            String tl_key = location.substring(location.indexOf("tl_key=") + 7, location.indexOf("&redirect_url"));
+
+            //todo 现在已经发送了验证码到手机上，需要用mobileConfirm()接口来获取cookie，通过cookie获取微信插件二维码
+            //这三个参数mobileConfirm()接口需要用到
+            System.err.println("referer:"+baseUri+location);
+            System.err.println("tl_key:"+tl_key);
+            System.err.println("tmpSid:"+tmpCookie);
+            System.err.println("手机上确认的验证码:xxxxx");
+            return "mobile_confirm";
+        }
         //这里可以将cookie存入缓存
         return cookie;
     }
+
+
+    /**
+     * 通过微信手机验证码获取微信二维码创建
+     * @return
+     */
+    public String mobileConfirm(){
+        // 这里的参数需要在工作台和手机上获取
+        String tmpSid = "tmpSid";
+        String tl_key = "tl_key";
+        String referer = "referer";
+        String code = "code";
+
+        Map<String, String> headers = new HashMap<>();
+        headers.put(HttpHeaders.COOKIE, "wwrtx.sid=" + tmpSid);
+        headers.put(HttpHeaders.CONTENT_TYPE, "application/json; charset=utf-8");
+        headers.put(HttpHeaders.REFERER, referer);
+        Map<String, Object> params = new HashMap<>();
+        params.put("captcha", code);
+        params.put("tl_key", tl_key);
+        HttpResponse<String> response = HttpUtil.doPost(baseUri + "/wework_admin/mobile_confirm/confirm_captcha", params, headers);
+        String result = response.getBody();
+        System.out.println("result:"+result);
+        JSONObject resultJSON = JSONObject.parseObject(result);
+        if (resultJSON != null && resultJSON.getJSONObject("data").isEmpty()) {
+            Map<String, String> stringStringMap = HttpUtil.sendRedirectRequest(baseUri + "/wework_admin/login/choose_corp?tl_key=" +tl_key, tmpSid);
+            if (stringStringMap != null) {
+                String cookie = stringStringMap.get("cookie");
+                //缓存
+//                setCache(RedisConstant.WX_COOKIE, cookie, 0);
+
+                //微信插件二维码
+                return getWxPlugQrCode(cookie);
+            }
+        }
+        return "错误";
+    }
+
 
 
     /**
@@ -167,18 +234,4 @@ public class TestApi {
         //这里可以将二维码存入缓存 避免每次都请求一次
         return data.getString("qrCode");
     }
-
-
-    /**
-     * 获取企业信息.
-     *
-     * @return 企业信息
-     */
-//    public Map<String, String> getCorp() {
-//        HttpResponse<String> response = unirest.get(baseUri + "wework_admin/corp/getCorp")
-//                .asString();
-//
-//        JSONObject res = JSON.parseObject(response.getBody());
-//        return res.getJSONObject("data").toJavaObject(HashMap.class);
-//    }
 }
