@@ -79,7 +79,15 @@ public class ApiController {
     @RequestMapping(value = "confirmCaptcha", method = RequestMethod.POST)
     public AjaxResult confirmCaptcha(@RequestBody WxCaptchaDto wxCaptcha) {
 
-        JSONObject jsonObject = apiService.confirmCaptcha(wxCaptcha);
+        JSONObject restJson = apiService.confirmCaptcha(wxCaptcha);
+        JSONObject jsonObject = restJson.getJSONObject("result");
+        if (jsonObject != null) {
+            return AjaxResult.error(jsonObject.getString("humanMessage"));
+        }
+        JSONObject data = restJson.getJSONObject("data");
+        if (data != null && !data.isEmpty()) {
+            return AjaxResult.error("请先扫码获取验证码");
+        }
         return AjaxResult.success(jsonObject);
     }
 
@@ -92,6 +100,9 @@ public class ApiController {
     @RequestMapping(value = "sendCaptcha", method = RequestMethod.POST)
     public AjaxResult sendCaptcha(@RequestBody WxCaptchaDto wxCaptcha) {
         JSONObject jsonObject = apiService.sendCaptcha(wxCaptcha);
+        if (jsonObject == null || jsonObject.getJSONObject("result") != null) {
+            return AjaxResult.error("请先扫码");
+        }
         return AjaxResult.success(jsonObject);
     }
 }
